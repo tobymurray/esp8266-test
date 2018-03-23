@@ -5,9 +5,11 @@
 #include <WiFiUdp.h>
 
 
-
+#define LED_PIN 2
 #define DHT_PIN 4 // The GPIO the DHT22 is connected to
 #define DHT_TYPE DHT22  // The specific type of sensor
+
+#define HEAT_PIN 12 // The GPIO to turn heat on or off
 
 DHT dht(DHT_PIN, DHT_TYPE);
 
@@ -146,7 +148,8 @@ void setup() {
   Serial.setTimeout(2000);
   
   // initialize digital pin 13 as an output.
-  pinMode(2, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(HEAT_PIN, OUTPUT);
   Serial.println("Device Started");
   Serial.println("-------------------------------------");
   Serial.println("Running DHT!");
@@ -170,25 +173,26 @@ void setup() {
   sendNTPpacket(timeServerIP);
 }
 
-void readTemperatureAndHumidity(long lastUnixTimestamp, long lastNTPResponse) {
+float readTemperatureAndHumidity(long lastUnixTimestamp, long lastNTPResponse) {
   long start = millis();
   timeOfLastDhtRead = start;
-  readTemperature(lastUnixTimestamp, lastNTPResponse);
+  float temperatureCelsius = readTemperature(lastUnixTimestamp, lastNTPResponse);
   readHumidity(lastUnixTimestamp, lastNTPResponse);
   long end = millis();
   Serial.print("Reading temperature and humidity took ");
   Serial.print(end - start);
   Serial.println("ms");
+  return temperatureCelsius;
 }
 
-void readTemperature(long lastUnixTimestamp, long lastNTPResponse) {
+float readTemperature(long lastUnixTimestamp, long lastNTPResponse) {
   // Read temperature as Celsius (the default)
   float temperatureCelsius = dht.readTemperature();
 
   // Check if read failed and exit early
   if ( isnan(temperatureCelsius) ) {
     Serial.println("Failed to read temperature from DHT sensor!");
-    return;
+    return sqrt(-1);
   }
 
   long now = millis();
@@ -199,6 +203,7 @@ void readTemperature(long lastUnixTimestamp, long lastNTPResponse) {
   messageBody["secondsSinceEpoch"] = lastUnixTimestamp + (now - lastNTPResponse)/1000;
   messageBody.printTo(mqttMessage.body, 128);
   client.publish(mqttMessage.topic, mqttMessage.body);
+  return temperatureCelsius;
 }
 
 void readHumidity(long lastUnixTimestamp, long lastNTPResponse) {
@@ -258,11 +263,14 @@ void loop() {
   uint32_t actualTime = secondsSinceEpoch + (now - lastNTPResponse)/1000;
 
   if ( (now - timeOfLastDhtRead) > MILLIS_BETWEEN_DHT_READ && secondsSinceEpoch != 0) {
-    readTemperatureAndHumidity(secondsSinceEpoch, lastNTPResponse);
+    float temperatureCelsius = readTemperatureAndHumidity(secondsSinceEpoch, lastNTPResponse);
+    if ( !isnan(temperatureCelsius) ) {
+      digitalWrite(HEAT_PIN, temperatureCelsius < 37.5 ? LOW : HIGH);
+    }
   }
-  digitalWrite(2, HIGH);   // turn the LED on (HIGH is the voltage level)
+  digitalWrite(LED_PIN, HIGH);   // turn the LED on (HIGH is the voltage level)
   delay(1000);              // wait for a second
-  digitalWrite(2, LOW);    // turn the LED off by making the voltage LOW
+  digitalWrite(LED_PIN, LOW);    // turn the LED off by making the voltage LOW
   delay(1000);              // wait for a second
 }
 
