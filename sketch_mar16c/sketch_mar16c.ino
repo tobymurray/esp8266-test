@@ -14,14 +14,9 @@ DHT dht(DHT_PIN, DHT_TYPE);
 const char* mqtt_server = "192.168.1.132";
 char* ssid = "Love Shack";
 const char* password = "pachamama";
-const char* TEMPERATURE_TOPIC = "temperature";
-const char* HUMIDITY_TOPIC = "humidity";
+const char* TEMPERATURE_TOPIC = "desk/temperature";
+const char* HUMIDITY_TOPIC = "desk/humidity";
 const int MILLIS_BETWEEN_DHT_READ = 5000;
-
-const char* NTP_SERVER1 = "0.ca.pool.ntp.org";
-const char* NTP_SERVER2 = "1.ca.pool.ntp.org";
-const char* NTP_SERVER3 = "2.ca.pool.ntp.org";
-const char* TZ_INFO    = "EST5EDT4,M3.2.0/02:00:00,M11.1.0/02:00:00";
 
 WiFiUDP UDP;                     // Create an instance of the WiFiUDP class to send and receive
 IPAddress timeServerIP;          // time.nist.gov NTP server address
