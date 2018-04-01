@@ -13,12 +13,14 @@
 
 DHT dht(DHT_PIN, DHT_TYPE);
 
-const char* mqtt_server = "192.168.1.132";
+const char* mqtt_server = "192.168.1.135";
 char* ssid = "Love Shack";
 const char* password = "pachamama";
 const char* TEMPERATURE_TOPIC = "desk/temperature";
 const char* HUMIDITY_TOPIC = "desk/humidity";
-const int MILLIS_BETWEEN_DHT_READ = 5000;
+const char* HEATER_TOPIC = "desk/heater";
+const char* HEATER_TREND_TOPIC = "desk/heater/trend";
+const int MILLIS_BETWEEN_DHT_READ = 2500;
 
 WiFiUDP UDP;                     // Create an instance of the WiFiUDP class to send and receive
 IPAddress timeServerIP;          // time.nist.gov NTP server address
@@ -29,6 +31,7 @@ byte NTPBuffer[NTP_PACKET_SIZE]; // buffer to hold incoming and outgoing packets
 WiFiClient espClient;
 PubSubClient client(espClient);
 long timeOfLastDhtRead = 0;
+bool temperatureRising = true;
 
 typedef struct MqttMessage {
   char topic[128];
@@ -194,7 +197,7 @@ float readTemperature(long lastUnixTimestamp, long lastNTPResponse) {
     Serial.println("Failed to read temperature from DHT sensor!");
     return sqrt(-1);
   }
-
+  
   long now = millis();
   strcpy(mqttMessage.topic, TEMPERATURE_TOPIC);
   StaticJsonBuffer<200> jsonBuffer;
@@ -227,10 +230,74 @@ void readHumidity(long lastUnixTimestamp, long lastNTPResponse) {
   client.publish(mqttMessage.topic, mqttMessage.body);
 }
 
+void adjustHeat(float temperatureCelsius, uint32_t actualTime) {
+  if (temperatureRising) {
+    if (temperatureCelsius <= 37.9) {
+      digitalWrite(HEAT_PIN, LOW); 
+      strcpy(mqttMessage.topic, HEATER_TOPIC);
+      
+      StaticJsonBuffer<200> jsonBuffer;
+      JsonObject& messageBody = jsonBuffer.createObject();
+      messageBody["heating"] = true;
+      messageBody["secondsSinceEpoch"] = actualTime;
+      messageBody.printTo(mqttMessage.body, 128);
+      client.publish(mqttMessage.topic, mqttMessage.body);
+    } else {
+      digitalWrite(HEAT_PIN, HIGH);
+      temperatureRising = false;
+
+      strcpy(mqttMessage.topic, HEATER_TOPIC);
+      StaticJsonBuffer<200> jsonBuffer;
+      JsonObject& messageBody = jsonBuffer.createObject();
+      messageBody["heating"] = false;
+      messageBody["secondsSinceEpoch"] = actualTime;
+      messageBody.printTo(mqttMessage.body, 128);
+      client.publish(mqttMessage.topic, mqttMessage.body);
+      
+      strcpy(mqttMessage.topic, HEATER_TREND_TOPIC); 
+      JsonObject& messageBody2 = jsonBuffer.createObject();
+      messageBody2["temperatureRising"] = false;
+      messageBody2["secondsSinceEpoch"] = actualTime;
+      messageBody2.printTo(mqttMessage.body, 128);
+      client.publish(mqttMessage.topic, mqttMessage.body);
+    }
+  } else {
+    if (temperatureCelsius <= 37.7) {
+      digitalWrite(HEAT_PIN, LOW);
+      temperatureRising = true; 
+
+      StaticJsonBuffer<200> jsonBuffer;
+      JsonObject& messageBody = jsonBuffer.createObject();
+      messageBody["heating"] = true;
+      messageBody["secondsSinceEpoch"] = actualTime;
+      messageBody.printTo(mqttMessage.body, 128);
+      client.publish(mqttMessage.topic, mqttMessage.body);
+
+      strcpy(mqttMessage.topic, HEATER_TREND_TOPIC);
+      JsonObject& messageBody2 = jsonBuffer.createObject();
+      messageBody2["temperatureRising"] = true;
+      messageBody2["secondsSinceEpoch"] = actualTime;
+      messageBody2.printTo(mqttMessage.body, 128);
+      client.publish(mqttMessage.topic, mqttMessage.body);
+    } else {
+      digitalWrite(HEAT_PIN, HIGH);
+
+      strcpy(mqttMessage.topic, HEATER_TOPIC);
+      StaticJsonBuffer<200> jsonBuffer;
+      JsonObject& messageBody = jsonBuffer.createObject();
+      messageBody["heating"] = false;
+      messageBody["secondsSinceEpoch"] = actualTime;
+      messageBody.printTo(mqttMessage.body, 128);
+      client.publish(mqttMessage.topic, mqttMessage.body);
+    }
+  }
+}
+
 unsigned long ntpPollingInterval = 10 * 60 * 1000; // Request NTP time every 10 minutes
 unsigned long previousNTP = 0;
 unsigned long lastNTPResponse = millis();
 uint32_t secondsSinceEpoch = 0;
+
 
 // the loop function runs over and over again forever
 void loop() {
@@ -265,9 +332,10 @@ void loop() {
   if ( (now - timeOfLastDhtRead) > MILLIS_BETWEEN_DHT_READ && secondsSinceEpoch != 0) {
     float temperatureCelsius = readTemperatureAndHumidity(secondsSinceEpoch, lastNTPResponse);
     if ( !isnan(temperatureCelsius) ) {
-      digitalWrite(HEAT_PIN, temperatureCelsius < 37.5 ? LOW : HIGH);
+      adjustHeat(temperatureCelsius, actualTime);      
     }
   }
+  
   digitalWrite(LED_PIN, HIGH);   // turn the LED on (HIGH is the voltage level)
   delay(1000);              // wait for a second
   digitalWrite(LED_PIN, LOW);    // turn the LED off by making the voltage LOW
