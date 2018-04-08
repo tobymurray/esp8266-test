@@ -25,7 +25,7 @@ const char* TEMPERATURE_TOPIC_2 = "desk/temperature/2";
 const char* HUMIDITY_TOPIC_2 = "desk/humidity/2";
 const char* HEATER_TOPIC = "desk/heater";
 const char* HEATER_TREND_TOPIC = "desk/heater/trend";
-const int MILLIS_BETWEEN_DHT_READ = 2500;
+const int MILLIS_BETWEEN_DHT_READ = 5000;
 
 WiFiUDP UDP;                     // Create an instance of the WiFiUDP class to send and receive
 IPAddress timeServerIP;          // time.nist.gov NTP server address
