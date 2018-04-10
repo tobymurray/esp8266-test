@@ -1,8 +1,29 @@
+// DHT22 Sensor library
 #include <dht.h>
 
+// Connect to local WiFi LAN
+#include <ESP8266WiFi.h>
+
+// Local LAN configuration
+#include <LanConfiguration.h>
+
 #define LED_PIN 2
+#define HEAT_PIN D6 // The GPIO to turn the heat on or off
+#define HUMIDITY_PIN D7 // The GPIO to turn the mister on or off
 #define DHT22_PIN_1 D1
 #define DHT22_PIN_2 D2
+
+const float MAX_TEMPERATURE = 37.9;
+const float MIN_TEMPERATURE = 37.7;
+
+const float MAX_HUMIDITY = 70;
+const float MIN_HUMIDITY = 60;
+
+const char* ssid = SSID;
+const char* password = PASSWORD;
+
+bool temperatureRising = true;
+bool humidityRising = true;
 
 dht DHT;
 
@@ -61,7 +82,7 @@ void printSensorReading(int sensorNumber, sensorReading reading) {
   Serial.println(reading.microsToRead);
 }
 
-void printAverages(sensorReading reading1, sensorReading reading2) {
+sensorReading printAverages(sensorReading reading1, sensorReading reading2) {
   float averageTemperature = (reading1.temperatureCelsius + reading2.temperatureCelsius) / 2;
   float temperatureDifference = fabsf(reading1.temperatureCelsius - reading2.temperatureCelsius);
   float averageHumidity = (reading1.relativeHumidity + reading2.relativeHumidity) / 2;
@@ -76,21 +97,93 @@ void printAverages(sensorReading reading1, sensorReading reading2) {
   Serial.print(" (\u0394");
   Serial.print(humidityDifference);
   Serial.println(")");
+  return { averageTemperature, averageHumidity };
 }
 
+void set_up_wifi() {
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid, password);
+
+  Serial.print("Wifi status is: ");
+  Serial.println(WiFi.status());
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  randomSeed(micros());
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+void adjustHeat(float temperatureCelsius) {
+  if (temperatureRising) {
+    if (temperatureCelsius <= MAX_TEMPERATURE) {
+      digitalWrite(HEAT_PIN, HIGH);
+    } else {
+      digitalWrite(HEAT_PIN, LOW);
+      temperatureRising = false;
+    }
+  } else {
+    if (temperatureCelsius <= MIN_TEMPERATURE) {
+      digitalWrite(HEAT_PIN, HIGH);
+      temperatureRising = true;
+    } else {
+      digitalWrite(HEAT_PIN, LOW);
+    }
+  }
+}
+
+void adjustHumidity(float relativeHumidity) {
+  if (humidityRising) {
+    if (relativeHumidity <= MAX_HUMIDITY) {
+      digitalWrite(HUMIDITY_PIN, HIGH);
+    } else {
+      digitalWrite(HUMIDITY_PIN, LOW);
+      humidityRising = false;
+    }
+  } else {
+    if (relativeHumidity <= MIN_HUMIDITY) {
+      digitalWrite(HUMIDITY_PIN, HIGH);
+      humidityRising = true;
+    } else {
+      digitalWrite(HUMIDITY_PIN, LOW);
+    }
+  }
+}
 
 void setup() {
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
+  pinMode(HEAT_PIN, OUTPUT);
+  pinMode(HUMIDITY_PIN, OUTPUT);
+
+  set_up_wifi();
 }
 
 void loop() {
   sensorReading sensor1Reading = readSensor(DHT22_PIN_1);
   sensorReading sensor2Reading = readSensor(DHT22_PIN_2);
 
-  printAverages(sensor1Reading, sensor2Reading);
-  digitalWrite(LED_PIN, HIGH);   // turn the LED on (HIGH is the voltage level)
-  delay(2000);
+  sensorReading reading = printAverages(sensor1Reading, sensor2Reading);
+
+  if ( !isnan(reading.temperatureCelsius) ) {
+    adjustHeat(reading.temperatureCelsius);
+  }
+
+  if ( !isnan(reading.relativeHumidity)) {
+    adjustHumidity(reading.relativeHumidity);
+  }
+  
+  delay(1000);
   digitalWrite(LED_PIN, LOW);   // turn the LED on (HIGH is the voltage level)
+  delay(1000);
+  digitalWrite(LED_PIN, HIGH);   // turn the LED on (HIGH is the voltage level)
 }
 

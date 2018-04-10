@@ -36,7 +36,7 @@ byte NTPBuffer[NTP_PACKET_SIZE]; // buffer to hold incoming and outgoing packets
 WiFiClient espClient;
 PubSubClient client(espClient);
 long timeOfLastDhtRead = 0;
-bool temperatureRising = true;
+bool temperatureRisinboolean g = true;
 
 typedef struct MqttMessage {
   char topic[128];
