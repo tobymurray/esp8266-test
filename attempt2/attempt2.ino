@@ -17,6 +17,7 @@
 const float MAX_REASONABLE_TEMPERATURE = 50;
 const float MIN_REASONABLE_TEMPERATURE = 10;
 
+// Definition of window of acceptable temperature - avoids constantly flicking heat on and off
 const float MAX_TEMPERATURE = 37.9;
 const float MIN_TEMPERATURE = 37.7;
 
@@ -83,17 +84,6 @@ sensorReading readSensor(uint8_t dhtGpio, statistics stats) {
 
     // On any error conditions, return a neutered value
     return { NAN, NAN, stop - start };
-}
-
-void printSensorReading(int sensorNumber, sensorReading reading) {
-  Serial.print("Sensor ");
-  Serial.print(sensorNumber);
-  Serial.print(" - Temperature: ");
-  Serial.print(reading.temperatureCelsius);
-  Serial.print(" humidity: ");
-  Serial.print(reading.relativeHumidity);
-  Serial.print(" micros to read: ");
-  Serial.println(reading.microsToRead);
 }
 
 void printAverages(sensorReading averages, sensorReading reading1, sensorReading reading2) {
