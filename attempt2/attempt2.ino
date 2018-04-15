@@ -58,12 +58,15 @@ sensorReading readSensor(uint8_t dhtGpio) {
         sensor1Stats.ok++;
         break;
     case DHTLIB_ERROR_CHECKSUM:
+        Serial.println("Checksum error");
         sensor1Stats.crc_error++;
         break;
     case DHTLIB_ERROR_TIMEOUT:
+        Serial.println("timeout error");
         sensor1Stats.time_out++;
         break;
     default:
+        Serial.println("unknonwn error");
         sensor1Stats.unknown++;
         break;
     }
@@ -91,6 +94,10 @@ sensorReading printAverages(sensorReading reading1, sensorReading reading2) {
   Serial.print("Average temperature: ");
   Serial.print(averageTemperature);
   Serial.print(" (\u0394");
+  Serial.print(reading1.temperatureCelsius);
+  Serial.print(", ");
+  Serial.print(reading2.temperatureCelsius);
+  Serial.print(": ");
   Serial.print(temperatureDifference);
   Serial.print(")  average humidity: ");
   Serial.print(averageHumidity);
@@ -100,14 +107,30 @@ sensorReading printAverages(sensorReading reading1, sensorReading reading2) {
   return { averageTemperature, averageHumidity };
 }
 
-void set_up_wifi() {
+void printWiFiStatus() {
+  Serial.print("WiFi status: ");
+  switch (WiFi.status()) {
+    case WL_IDLE_STATUS: Serial.println("idle"); break;
+    case WL_NO_SSID_AVAIL: Serial.println("no SSID available"); break;
+    case WL_SCAN_COMPLETED: Serial.println("scan completed"); break;
+    case WL_CONNECTED: Serial.println("connected"); break;
+    case WL_CONNECT_FAILED: Serial.println("connection failed"); break;
+    case WL_CONNECTION_LOST: Serial.println("connection lost"); break;
+    case WL_DISCONNECTED: Serial.println("disconnected"); break;
+    default: break;
+  }
+}
+
+void setUpWiFi() {
   Serial.print("Connecting to ");
   Serial.println(ssid);
+  printWiFiStatus();
 
   WiFi.begin(ssid, password);
 
-  Serial.print("Wifi status is: ");
-  Serial.println(WiFi.status());
+  printWiFiStatus();
+
+
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -164,7 +187,7 @@ void setup() {
   pinMode(HEAT_PIN, OUTPUT);
   pinMode(HUMIDITY_PIN, OUTPUT);
 
-  set_up_wifi();
+  setUpWiFi();
 }
 
 void loop() {
