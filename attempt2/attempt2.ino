@@ -4,8 +4,13 @@
 // Connect to local WiFi LAN
 #include <ESP8266WiFi.h>
 
+// Use UDP for time server
+#include <WiFiUdp.h>
+
 // Local LAN configuration
 #include <LanConfiguration.h>
+
+#include <TobyNtp.h>
 
 #define LED_PIN 2
 #define HEAT_PIN D6 // The GPIO to turn the heat on or off
@@ -58,6 +63,9 @@ struct sensorReading {
 statistics sensor1Stats = { 0,0,0,0,0,0,0,0 };
 statistics sensor2Stats = { 0,0,0,0,0,0,0,0 };
 
+WiFiUDP UDP;
+TobyNtp* ntp;
+
 sensorReading readSensor(uint8_t dhtGpio, statistics stats) {
     uint32_t start = micros();
     int checkStatus = DHT.read22(dhtGpio);
@@ -90,7 +98,15 @@ void printAverages(sensorReading averages, sensorReading reading1, sensorReading
   float temperatureDifference = fabsf(reading1.temperatureCelsius - reading2.temperatureCelsius);
   float humidityDifference = fabsf(reading1.relativeHumidity - reading2.relativeHumidity);
 
-  Serial.print("Average temperature: ");
+
+  uint32_t time = ntp->getTime();
+  if (time) {
+    Serial.print("At ");
+    Serial.print(time);
+    Serial.print(" ");
+  }
+
+  Serial.print("average temperature: ");
   Serial.print(averages.temperatureCelsius);
   Serial.print(" (\u0394");
   Serial.print(reading1.temperatureCelsius);
@@ -255,10 +271,20 @@ void setup() {
   pinMode(HUMIDITY_PIN, OUTPUT);
 
   setUpWiFi();
+  UDP.begin(123);
+  Serial.print("Started UDP on port ");
+  Serial.println(UDP.localPort());
+  ntp = new TobyNtp(UDP, "0.ca.pool.ntp.org");
+
+  ntp->sendNTPpacket(true);
+
+  // Interrupts potentially cause timeouts when reading the DHT22s
   DHT.setDisableIRQ(true);
 }
 
 void loop() {
+  ntp->sendNTPpacket();
+
   sensorReading sensor1Reading = readSensor(DHT22_PIN_1, sensor1Stats);
   sensorReading sensor2Reading = readSensor(DHT22_PIN_2, sensor2Stats);
   sensorReading averages = computeAverages(sensor1Reading, sensor2Reading);
