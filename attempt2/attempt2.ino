@@ -31,6 +31,10 @@ bool humidityRising = true;
 
 int consecutiveFailedTemperatureReads = 0;
 
+int cyclesInHeatCoolLoop = 0;
+int cyclesToHeatToMax = 0;
+int cyclesToCoolToMin = 0;
+
 dht DHT;
 
 struct statistics {
@@ -50,8 +54,8 @@ struct sensorReading {
   long microsToRead; 
 };
 
-statistics sensor1Stats = { 0,0,0,0,0,0,0,0};
-statistics sensor2Stats = { 0,0,0,0,0,0,0,0};
+statistics sensor1Stats = { 0,0,0,0,0,0,0,0 };
+statistics sensor2Stats = { 0,0,0,0,0,0,0,0 };
 
 sensorReading readSensor(uint8_t dhtGpio, statistics stats) {
     uint32_t start = micros();
@@ -188,16 +192,33 @@ void turnHeatOff() {
 void adjustHeat(float temperatureCelsius) {
   if (temperatureRising) {
     if (temperatureCelsius <= MAX_TEMPERATURE) {
+      cyclesToHeatToMax++;
+      cyclesInHeatCoolLoop++;
       turnHeatOn();
     } else {
+      Serial.print("Time to heat to maximum temperature roughly ");
+      Serial.print(cyclesToHeatToMax * 2);
+      Serial.println(" seconds.");
+      Serial.print("Full heat/cool cycle lasted roughly ");
+      Serial.print(cyclesInHeatCoolLoop * 2);
+      Serial.println(" seconds.");
+      cyclesToHeatToMax = 0;
+      cyclesInHeatCoolLoop = 0;
       turnHeatOff();
       temperatureRising = false;
     }
-  } else {
+  } else { // Temperature is falling
     if (temperatureCelsius <= MIN_TEMPERATURE) {
+      Serial.print("Time to drop to minimum temperature roughly ");
+      Serial.print(cyclesToCoolToMin * 2);
+      Serial.println(" seconds.");
+      cyclesToCoolToMin = 0;
+      cyclesInHeatCoolLoop++;
       turnHeatOn();
       temperatureRising = true;
     } else {
+      cyclesToCoolToMin++;
+      cyclesInHeatCoolLoop++;
       turnHeatOff();
     }
   }
