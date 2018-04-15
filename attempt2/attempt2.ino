@@ -13,6 +13,10 @@
 #define DHT22_PIN_1 D1
 #define DHT22_PIN_2 D2
 
+// Values to bound what constitutes a correct sensor reading
+const float MAX_REASONABLE_TEMPERATURE = 50;
+const float MIN_REASONABLE_TEMPERATURE = 10;
+
 const float MAX_TEMPERATURE = 37.9;
 const float MIN_TEMPERATURE = 37.7;
 
@@ -24,6 +28,8 @@ const char* password = PASSWORD;
 
 bool temperatureRising = true;
 bool humidityRising = true;
+
+int consecutiveFailedTemperatureReads = 0;
 
 dht DHT;
 
@@ -47,31 +53,32 @@ struct sensorReading {
 statistics sensor1Stats = { 0,0,0,0,0,0,0,0};
 statistics sensor2Stats = { 0,0,0,0,0,0,0,0};
 
-sensorReading readSensor(uint8_t dhtGpio) {
+sensorReading readSensor(uint8_t dhtGpio, statistics stats) {
     uint32_t start = micros();
-    int chk = DHT.read22(dhtGpio);
+    int checkStatus = DHT.read22(dhtGpio);
     uint32_t stop = micros();
 
-    sensor1Stats.total++;
-    switch (chk) {
+    stats.total++;
+    switch (checkStatus) {
     case DHTLIB_OK:
-        sensor1Stats.ok++;
-        break;
+        stats.ok++;
+        return { DHT.temperature, DHT.humidity, stop - start };
     case DHTLIB_ERROR_CHECKSUM:
         Serial.println("Checksum error");
-        sensor1Stats.crc_error++;
+        stats.crc_error++;
         break;
     case DHTLIB_ERROR_TIMEOUT:
         Serial.println("timeout error");
-        sensor1Stats.time_out++;
+        stats.time_out++;
         break;
     default:
-        Serial.println("unknonwn error");
-        sensor1Stats.unknown++;
+        Serial.println("unknown error");
+        stats.unknown++;
         break;
     }
 
-    return { DHT.temperature, DHT.humidity, stop - start };
+    // On any error conditions, return a neutered value
+    return { NAN, NAN, stop - start };
 }
 
 void printSensorReading(int sensorNumber, sensorReading reading) {
@@ -107,6 +114,42 @@ sensorReading printAverages(sensorReading reading1, sensorReading reading2) {
   return { averageTemperature, averageHumidity };
 }
 
+float nanIfOutOfBounds(float temperature) {
+  if (isnan(temperature) || temperature > MAX_REASONABLE_TEMPERATURE || temperature < MIN_REASONABLE_TEMPERATURE) {
+    return NAN;
+  }
+
+  return temperature;
+}
+
+float averagePotentiallyInvalidTemperatures(float temperature1, float temperature2) {
+  float value1 = nanIfOutOfBounds(temperature1);
+  float value2 = nanIfOutOfBounds(temperature2);
+
+  return averageIgnoringNan(value1, value2);
+}
+
+float averageIgnoringNan(float value1, float value2) {
+  if (isnan(value1) && isnan(value2)) {
+    return NAN;
+  } else if (isnan(value1)) {
+    return value2;
+  } else if (isnan(value2)) {
+    return value1;
+  } else {
+    return (value1 + value2) / 2;
+  }
+}
+
+sensorReading computeAverages(sensorReading reading1, sensorReading reading2) {
+  float averageTemperature = averagePotentiallyInvalidTemperatures(reading1.temperatureCelsius, reading2.temperatureCelsius);
+  float temperatureDifference = fabsf(reading1.temperatureCelsius - reading2.temperatureCelsius);
+  float averageHumidity = averageIgnoringNan(reading1.relativeHumidity, reading2.relativeHumidity);
+  float humidityDifference = fabsf(reading1.relativeHumidity - reading2.relativeHumidity);
+
+  return { averageTemperature, averageHumidity };
+}
+
 void printWiFiStatus() {
   Serial.print("WiFi status: ");
   switch (WiFi.status()) {
@@ -124,41 +167,43 @@ void printWiFiStatus() {
 void setUpWiFi() {
   Serial.print("Connecting to ");
   Serial.println(ssid);
-  printWiFiStatus();
 
   WiFi.begin(ssid, password);
-
-  printWiFiStatus();
-
-
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
+  printWiFiStatus();
 
   randomSeed(micros());
 
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
+  Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
+}
+
+void turnHeatOn() {
+  digitalWrite(HEAT_PIN, HIGH);
+}
+
+void turnHeatOff() {
+  digitalWrite(HEAT_PIN, LOW);
 }
 
 void adjustHeat(float temperatureCelsius) {
   if (temperatureRising) {
     if (temperatureCelsius <= MAX_TEMPERATURE) {
-      digitalWrite(HEAT_PIN, HIGH);
+      turnHeatOn();
     } else {
-      digitalWrite(HEAT_PIN, LOW);
+      turnHeatOff();
       temperatureRising = false;
     }
   } else {
     if (temperatureCelsius <= MIN_TEMPERATURE) {
-      digitalWrite(HEAT_PIN, HIGH);
+      turnHeatOn();
       temperatureRising = true;
     } else {
-      digitalWrite(HEAT_PIN, LOW);
+      turnHeatOff();
     }
   }
 }
@@ -188,16 +233,26 @@ void setup() {
   pinMode(HUMIDITY_PIN, OUTPUT);
 
   setUpWiFi();
+  DHT.setDisableIRQ(true);
 }
 
 void loop() {
-  sensorReading sensor1Reading = readSensor(DHT22_PIN_1);
-  sensorReading sensor2Reading = readSensor(DHT22_PIN_2);
+  sensorReading sensor1Reading = readSensor(DHT22_PIN_1, sensor1Stats);
+  sensorReading sensor2Reading = readSensor(DHT22_PIN_2, sensor2Stats);
 
-  sensorReading reading = printAverages(sensor1Reading, sensor2Reading);
+  sensorReading reading = computeAverages(sensor1Reading, sensor2Reading);
 
-  if ( !isnan(reading.temperatureCelsius) ) {
+  printAverages(sensor1Reading, sensor2Reading);
+
+  if ( isnan(reading.temperatureCelsius) ) {
+    consecutiveFailedTemperatureReads++;
+    // If it's been a minute (30 * 2 seconds) without a valid temperature value, turn off the heat to fail safe
+    if (consecutiveFailedTemperatureReads >= 30) {
+      turnHeatOff();
+    }
+  } else {
     adjustHeat(reading.temperatureCelsius);
+    consecutiveFailedTemperatureReads = 0;
   }
 
   if ( !isnan(reading.relativeHumidity)) {
