@@ -92,14 +92,12 @@ void printSensorReading(int sensorNumber, sensorReading reading) {
   Serial.println(reading.microsToRead);
 }
 
-sensorReading printAverages(sensorReading reading1, sensorReading reading2) {
-  float averageTemperature = (reading1.temperatureCelsius + reading2.temperatureCelsius) / 2;
+void printAverages(sensorReading averages, sensorReading reading1, sensorReading reading2) {
   float temperatureDifference = fabsf(reading1.temperatureCelsius - reading2.temperatureCelsius);
-  float averageHumidity = (reading1.relativeHumidity + reading2.relativeHumidity) / 2;
   float humidityDifference = fabsf(reading1.relativeHumidity - reading2.relativeHumidity);
 
   Serial.print("Average temperature: ");
-  Serial.print(averageTemperature);
+  Serial.print(averages.temperatureCelsius);
   Serial.print(" (\u0394");
   Serial.print(reading1.temperatureCelsius);
   Serial.print(", ");
@@ -107,11 +105,10 @@ sensorReading printAverages(sensorReading reading1, sensorReading reading2) {
   Serial.print(": ");
   Serial.print(temperatureDifference);
   Serial.print(")  average humidity: ");
-  Serial.print(averageHumidity);
+  Serial.print(averages.relativeHumidity);
   Serial.print(" (\u0394");
   Serial.print(humidityDifference);
   Serial.println(")");
-  return { averageTemperature, averageHumidity };
 }
 
 float nanIfOutOfBounds(float temperature) {
@@ -143,9 +140,7 @@ float averageIgnoringNan(float value1, float value2) {
 
 sensorReading computeAverages(sensorReading reading1, sensorReading reading2) {
   float averageTemperature = averagePotentiallyInvalidTemperatures(reading1.temperatureCelsius, reading2.temperatureCelsius);
-  float temperatureDifference = fabsf(reading1.temperatureCelsius - reading2.temperatureCelsius);
   float averageHumidity = averageIgnoringNan(reading1.relativeHumidity, reading2.relativeHumidity);
-  float humidityDifference = fabsf(reading1.relativeHumidity - reading2.relativeHumidity);
 
   return { averageTemperature, averageHumidity };
 }
@@ -240,28 +235,28 @@ void loop() {
   sensorReading sensor1Reading = readSensor(DHT22_PIN_1, sensor1Stats);
   sensorReading sensor2Reading = readSensor(DHT22_PIN_2, sensor2Stats);
 
-  sensorReading reading = computeAverages(sensor1Reading, sensor2Reading);
+  sensorReading averages = computeAverages(sensor1Reading, sensor2Reading);
 
-  printAverages(sensor1Reading, sensor2Reading);
+  printAverages(averages, sensor1Reading, sensor2Reading);
 
-  if ( isnan(reading.temperatureCelsius) ) {
+  if ( isnan(averages.temperatureCelsius) ) {
     consecutiveFailedTemperatureReads++;
     // If it's been a minute (30 * 2 seconds) without a valid temperature value, turn off the heat to fail safe
     if (consecutiveFailedTemperatureReads >= 30) {
       turnHeatOff();
     }
   } else {
-    adjustHeat(reading.temperatureCelsius);
+    adjustHeat(averages.temperatureCelsius);
     consecutiveFailedTemperatureReads = 0;
   }
 
-  if ( !isnan(reading.relativeHumidity)) {
-    adjustHumidity(reading.relativeHumidity);
+  if ( !isnan(averages.relativeHumidity)) {
+    adjustHumidity(averages.relativeHumidity);
   }
   
   delay(1000);
-  digitalWrite(LED_PIN, LOW);   // turn the LED on (HIGH is the voltage level)
+  digitalWrite(LED_PIN, LOW);
   delay(1000);
-  digitalWrite(LED_PIN, HIGH);   // turn the LED on (HIGH is the voltage level)
+  digitalWrite(LED_PIN, HIGH);
 }
 
