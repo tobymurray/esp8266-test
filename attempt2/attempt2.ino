@@ -146,7 +146,10 @@ sensorReading computeAverages(sensorReading reading1, sensorReading reading2) {
   float averageTemperature = averagePotentiallyInvalidTemperatures(reading1.temperatureCelsius, reading2.temperatureCelsius);
   float averageHumidity = averageIgnoringNan(reading1.relativeHumidity, reading2.relativeHumidity);
 
-  return { averageTemperature, averageHumidity };
+  sensorReading averages = { averageTemperature, averageHumidity };
+  printAverages(averages, reading1, reading2);
+
+  return averages;
 }
 
 void printWiFiStatus() {
@@ -242,6 +245,19 @@ void adjustHumidity(float relativeHumidity) {
   }
 }
 
+void processTemperature(float temperatureCelsius) {
+  if ( isnan(temperatureCelsius) ) {
+    consecutiveFailedTemperatureReads++;
+    // If it's been a minute (30 * 2 seconds) without a valid temperature value, turn off the heat to fail safe
+    if (consecutiveFailedTemperatureReads >= 30) {
+      turnHeatOff();
+    }
+  } else {
+    adjustHeat(temperatureCelsius);
+    consecutiveFailedTemperatureReads = 0;
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
@@ -255,21 +271,9 @@ void setup() {
 void loop() {
   sensorReading sensor1Reading = readSensor(DHT22_PIN_1, sensor1Stats);
   sensorReading sensor2Reading = readSensor(DHT22_PIN_2, sensor2Stats);
-
   sensorReading averages = computeAverages(sensor1Reading, sensor2Reading);
 
-  printAverages(averages, sensor1Reading, sensor2Reading);
-
-  if ( isnan(averages.temperatureCelsius) ) {
-    consecutiveFailedTemperatureReads++;
-    // If it's been a minute (30 * 2 seconds) without a valid temperature value, turn off the heat to fail safe
-    if (consecutiveFailedTemperatureReads >= 30) {
-      turnHeatOff();
-    }
-  } else {
-    adjustHeat(averages.temperatureCelsius);
-    consecutiveFailedTemperatureReads = 0;
-  }
+  processTemperature(averages.temperatureCelsius);
 
   if ( !isnan(averages.relativeHumidity)) {
     adjustHumidity(averages.relativeHumidity);
