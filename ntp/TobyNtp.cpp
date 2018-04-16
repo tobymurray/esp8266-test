@@ -5,6 +5,7 @@
 // #include <ESP8266WiFiMulti.h>
 #include <WiFiUdp.h>
 #include <TobyNtp.h>
+#include <time.h>
 
 IPAddress timeServerIP;
 
@@ -15,7 +16,7 @@ TobyNtp::TobyNtp(WiFiUDP udp, char* ntpHostname) :udp(udp), hostname(hostname) {
     WiFi.hostByName(ntpHostname, timeServerIP); // Get the IP address of the NTP server
 }
 
-uint32_t TobyNtp::getNewNtpTime() {
+time_t TobyNtp::getNewNtpTime() {
     if (udp.parsePacket() == 0) { // If there's no response (yet)
         return 0;
     }
@@ -27,7 +28,7 @@ uint32_t TobyNtp::getNewNtpTime() {
     return UNIXTime;
 }
 
-uint32_t TobyNtp::getTime() {
+time_t TobyNtp::getTime() {
     uint32_t newNtpTimeInSeconds = getNewNtpTime();
     if (newNtpTimeInSeconds != 0) {
         millisAtLastNtpResponse = millis();
@@ -43,6 +44,10 @@ uint32_t TobyNtp::getTime() {
     return mostRecentNtpTimeInSeconds + secondsSinceLastNtpResponse;
 }
 
+/*
+ * Call this once during setup with force==true to send off an NTP packet as soon as possible. 
+ * For all other invocations, this handles throttling requests to at most POLLING_INTERVAL.
+ */
 void TobyNtp::sendNTPpacket(bool force) {
     if (!force && millis() - previousNtpRequestMillis <= POLLING_INTERVAL) return;
 
@@ -55,16 +60,4 @@ void TobyNtp::sendNTPpacket(bool force) {
     udp.beginPacket(timeServerIP, 123); // NTP requests are to port 123
     udp.write(NTPBuffer, NTP_PACKET_SIZE);
     udp.endPacket();
-}
-
-inline int TobyNtp::getSeconds(uint32_t UNIXTime) {
-  return UNIXTime % 60;
-}
-
-inline int TobyNtp::getMinutes(uint32_t UNIXTime) {
-  return UNIXTime / 60 % 60;
-}
-
-inline int TobyNtp::getHours(uint32_t UNIXTime) {
-  return UNIXTime / 3600 % 24;
 }

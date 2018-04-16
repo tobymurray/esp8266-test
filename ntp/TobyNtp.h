@@ -1,5 +1,6 @@
 #include <cstdint>
 #include <WiFiUdp.h>
+#include <time.h>
 
 class TobyNtp {
     const unsigned long POLLING_INTERVAL = 10 * 60 * 1000; // Request NTP time every 10 minutes
@@ -15,11 +16,8 @@ class TobyNtp {
 
     public:
         TobyNtp(WiFiUDP udp, char* hostname);
-        uint32_t getTime();
+        time_t getTime();
         void sendNTPpacket(bool force = false);
     private:
-        uint32_t getNewNtpTime();
-        int getSeconds(uint32_t UNIXTime);
-        int getMinutes(uint32_t UNIXTime);
-        int getHours(uint32_t UNIXTime);
+        time_t getNewNtpTime();
 };

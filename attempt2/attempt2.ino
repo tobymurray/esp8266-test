@@ -66,6 +66,8 @@ statistics sensor2Stats = { 0,0,0,0,0,0,0,0 };
 WiFiUDP UDP;
 TobyNtp* ntp;
 
+struct tm * timeinfo;
+
 sensorReading readSensor(uint8_t dhtGpio, statistics stats) {
     uint32_t start = micros();
     int checkStatus = DHT.read22(dhtGpio);
@@ -99,11 +101,14 @@ void printAverages(sensorReading averages, sensorReading reading1, sensorReading
   float humidityDifference = fabsf(reading1.relativeHumidity - reading2.relativeHumidity);
 
 
-  uint32_t time = ntp->getTime();
+  time_t time = ntp->getTime();
   if (time) {
-    Serial.print("At ");
-    Serial.print(time);
-    Serial.print(" ");
+    timeinfo = localtime(&time);
+    char* timeString = asctime(timeinfo);
+    // Strip the newline off the string
+    timeString[strlen(timeString) - 1] = 0;
+    Serial.print(timeString);
+    Serial.print(": ");
   }
 
   Serial.print("average temperature: ");
@@ -269,6 +274,9 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   pinMode(HEAT_PIN, OUTPUT);
   pinMode(HUMIDITY_PIN, OUTPUT);
+
+  // Ensure the timezone is correctly set
+  setenv("TZ", "EST5EDT", 1);
 
   setUpWiFi();
   UDP.begin(123);
