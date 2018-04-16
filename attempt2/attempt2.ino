@@ -10,7 +10,10 @@
 // Local LAN configuration
 #include <LanConfiguration.h>
 
+// Helper class for getting real time
 #include <TobyNtp.h>
+
+#include <NanMath.h>
 
 #define LED_PIN 2
 #define HEAT_PIN D6 // The GPIO to turn the heat on or off
@@ -126,36 +129,16 @@ void printAverages(sensorReading averages, sensorReading reading1, sensorReading
   Serial.println(")");
 }
 
-float nanIfOutOfBounds(float temperature) {
-  if (isnan(temperature) || temperature > MAX_REASONABLE_TEMPERATURE || temperature < MIN_REASONABLE_TEMPERATURE) {
-    return NAN;
-  }
-
-  return temperature;
-}
-
 float averagePotentiallyInvalidTemperatures(float temperature1, float temperature2) {
-  float value1 = nanIfOutOfBounds(temperature1);
-  float value2 = nanIfOutOfBounds(temperature2);
+  float value1 = NanMath::nanIfOutOfBounds(temperature1, MIN_REASONABLE_TEMPERATURE, MAX_REASONABLE_TEMPERATURE);
+  float value2 = NanMath::nanIfOutOfBounds(temperature2, MIN_REASONABLE_TEMPERATURE, MAX_REASONABLE_TEMPERATURE);
 
-  return averageIgnoringNan(value1, value2);
-}
-
-float averageIgnoringNan(float value1, float value2) {
-  if (isnan(value1) && isnan(value2)) {
-    return NAN;
-  } else if (isnan(value1)) {
-    return value2;
-  } else if (isnan(value2)) {
-    return value1;
-  } else {
-    return (value1 + value2) / 2;
-  }
+  return NanMath::averageIgnoringNan(value1, value2);
 }
 
 sensorReading computeAverages(sensorReading reading1, sensorReading reading2) {
   float averageTemperature = averagePotentiallyInvalidTemperatures(reading1.temperatureCelsius, reading2.temperatureCelsius);
-  float averageHumidity = averageIgnoringNan(reading1.relativeHumidity, reading2.relativeHumidity);
+  float averageHumidity = NanMath::averageIgnoringNan(reading1.relativeHumidity, reading2.relativeHumidity);
 
   sensorReading averages = { averageTemperature, averageHumidity };
   printAverages(averages, reading1, reading2);
