@@ -29,8 +29,8 @@ const float MIN_REASONABLE_TEMPERATURE = 10;
 const float MAX_TEMPERATURE = 37.9;
 const float MIN_TEMPERATURE = 37.7;
 
-const float MAX_HUMIDITY = 70;
-const float MIN_HUMIDITY = 60;
+const float MAX_HUMIDITY = 65;
+const float MIN_HUMIDITY = 55;
 
 const char* ssid = SSID;
 const char* password = PASSWORD;
@@ -116,11 +116,11 @@ void printAverages(sensorReading averages, sensorReading reading1, sensorReading
 
   Serial.print("average temperature: ");
   Serial.print(averages.temperatureCelsius);
-  Serial.print(" (\u0394");
+  Serial.print(" (");
   Serial.print(reading1.temperatureCelsius);
   Serial.print(", ");
   Serial.print(reading2.temperatureCelsius);
-  Serial.print(": ");
+  Serial.print(": \u0394");
   Serial.print(temperatureDifference);
   Serial.print(")  average humidity: ");
   Serial.print(averages.relativeHumidity);
@@ -291,4 +291,3 @@ void loop() {
   delay(1000);
   digitalWrite(LED_PIN, HIGH);
 }
-
