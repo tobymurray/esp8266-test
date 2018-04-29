@@ -62,9 +62,6 @@ struct statistics {
   uint32_t ok;
   uint32_t crc_error;
   uint32_t time_out;
-  uint32_t connect;
-  uint32_t ack_l;
-  uint32_t ack_h;
   uint32_t unknown;
 };
 
@@ -81,8 +78,8 @@ typedef struct MqttMessage {
 };
 MqttMessage mqttMessage;
 
-statistics sensor1Stats = { 0,0,0,0,0,0,0,0 };
-statistics sensor2Stats = { 0,0,0,0,0,0,0,0 };
+statistics sensor1Stats = { 0,0,0,0,0 };
+statistics sensor2Stats = { 0,0,0,0,0 };
 
 WiFiUDP UDP;
 TobyNtp* ntp;
