@@ -19,6 +19,9 @@ const char* mqtt_server = "192.168.1.2";
 
 #include <NanMath.h>
 
+// For data about the ESP8266 itself (memory/VCC)
+#include <Esp.h>
+
 #define LED_PIN 2
 #define HEAT_PIN D6 // The GPIO to turn the heat on or off
 #define HUMIDITY_PIN D7 // The GPIO to turn the mister on or off
@@ -55,6 +58,7 @@ int cyclesInHeatCoolLoop = 0;
 int cyclesToHeatToMax = 0;
 int cyclesToCoolToMin = 0;
 
+EspClass esp;
 dht DHT;
 
 struct statistics {
@@ -89,7 +93,24 @@ PubSubClient mqttClient(wiFiClient);
 
 struct tm * timeinfo;
 
-sensorReading readSensor(uint8_t dhtGpio, statistics stats) {
+void printStatistics(statistics& stats) {
+  esp.getFreeHeap();
+  Serial.println("Total\t\t\tOK\t\t\tChecksum error\t\tTimeout\t\t\tUnknown\t\t\tFree heap");
+  Serial.print(stats.total);
+  Serial.print("\t\t\t");
+  Serial.print(stats.ok);
+  Serial.print("\t\t\t");
+  Serial.print(stats.crc_error);
+  Serial.print("\t\t\t");
+  Serial.print(stats.time_out);
+  Serial.print("\t\t\t");
+  Serial.print(stats.unknown);
+  Serial.print("\t\t\t");
+  Serial.print(esp.getFreeHeap());
+  Serial.println("");
+}
+
+sensorReading readSensor(uint8_t dhtGpio, statistics& stats) {
     uint32_t start = micros();
     int checkStatus = DHT.read22(dhtGpio);
     uint32_t stop = micros();
@@ -120,7 +141,6 @@ sensorReading readSensor(uint8_t dhtGpio, statistics stats) {
 void printAverages(sensorReading averages, sensorReading reading1, sensorReading reading2) {
   float temperatureDifference = fabsf(reading1.temperatureCelsius - reading2.temperatureCelsius);
   float humidityDifference = fabsf(reading1.relativeHumidity - reading2.relativeHumidity);
-
 
   time_t time = ntp->getTime();
   if (time) {
@@ -159,7 +179,7 @@ sensorReading computeAverages(sensorReading reading1, sensorReading reading2) {
   float averageHumidity = NanMath::averageIgnoringNan(reading1.relativeHumidity, reading2.relativeHumidity);
 
   sensorReading averages = { averageTemperature, averageHumidity };
-  printAverages(averages, reading1, reading2);
+  // printAverages(averages, reading1, reading2);
 
   return averages;
 }
@@ -211,12 +231,12 @@ void adjustHeat(float temperatureCelsius) {
       cyclesInHeatCoolLoop++;
       turnHeatOn();
     } else {
-      Serial.print("Time to heat to maximum temperature roughly ");
-      Serial.print(cyclesToHeatToMax * 2);
-      Serial.println(" seconds.");
-      Serial.print("Full heat/cool cycle lasted roughly ");
-      Serial.print(cyclesInHeatCoolLoop * 2);
-      Serial.println(" seconds.");
+      // Serial.print("Time to heat to maximum temperature roughly ");
+      // Serial.print(cyclesToHeatToMax * 2);
+      // Serial.println(" seconds.");
+      // Serial.print("Full heat/cool cycle lasted roughly ");
+      // Serial.print(cyclesInHeatCoolLoop * 2);
+      // Serial.println(" seconds.");
       cyclesToHeatToMax = 0;
       cyclesInHeatCoolLoop = 0;
       turnHeatOff();
@@ -224,9 +244,9 @@ void adjustHeat(float temperatureCelsius) {
     }
   } else { // Temperature is falling
     if (temperatureCelsius <= MIN_TEMPERATURE) {
-      Serial.print("Time to drop to minimum temperature roughly ");
-      Serial.print(cyclesToCoolToMin * 2);
-      Serial.println(" seconds.");
+      // Serial.print("Time to drop to minimum temperature roughly ");
+      // Serial.print(cyclesToCoolToMin * 2);
+      // Serial.println(" seconds.");
       cyclesToCoolToMin = 0;
       cyclesInHeatCoolLoop++;
       turnHeatOn();
@@ -357,6 +377,12 @@ void loop() {
   sendMessage(HUMIDITY_TOPIC_AVERAGE, averages.relativeHumidity);
 
   processTemperature(averages.temperatureCelsius);
+
+  // Throttle statistic output so it's not overwhelming
+  if (sensor1Stats.total % 50 == 0) {
+    printStatistics(sensor1Stats);
+    printStatistics(sensor2Stats);
+  }
 
   if ( !isnan(averages.relativeHumidity)) {
     adjustHumidity(averages.relativeHumidity);
