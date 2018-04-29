@@ -9,6 +9,10 @@
 
 // Local LAN configuration
 #include <LanConfiguration.h>
+const char* mqtt_server = "192.168.1.2";
+
+// For MQTT client
+#include <PubSubClient.h>
 
 // Helper class for getting real time
 #include <TobyNtp.h>
@@ -34,6 +38,13 @@ const float MIN_HUMIDITY = 55;
 
 const char* ssid = SSID;
 const char* password = PASSWORD;
+
+const char* TEMPERATURE_TOPIC_1 = "desk/temperature/1";
+const char* TEMPERATURE_TOPIC_2 = "desk/temperature/2";
+const char* TEMPERATURE_TOPIC_AVERAGE = "desk/temperature/average";
+const char* HUMIDITY_TOPIC_1 = "desk/humidity/1";
+const char* HUMIDITY_TOPIC_2 = "desk/humidity/2";
+const char* HUMIDITY_TOPIC_AVERAGE = "desk/humidity/average";
 
 bool temperatureRising = true;
 bool humidityRising = true;
@@ -63,11 +74,21 @@ struct sensorReading {
   long microsToRead; 
 };
 
+typedef struct MqttMessage {
+  char topic[128];
+  char body[128];
+  bool retained;
+};
+MqttMessage mqttMessage;
+
 statistics sensor1Stats = { 0,0,0,0,0,0,0,0 };
 statistics sensor2Stats = { 0,0,0,0,0,0,0,0 };
 
 WiFiUDP UDP;
 TobyNtp* ntp;
+
+WiFiClient wiFiClient;
+PubSubClient mqttClient(wiFiClient);
 
 struct tm * timeinfo;
 
@@ -252,6 +273,35 @@ void processTemperature(float temperatureCelsius) {
   }
 }
 
+void mqttMessageCallback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+}
+
+void reconnectToMqttServer() {
+  if (!mqttClient.connected()) {
+    Serial.print("Attempting MQTT connection...");
+
+    // Create a random client ID
+    String clientId = "ESP8266Client-";
+    clientId += String(random(0xffff), HEX);
+
+    // Attempt to connect
+    if (mqttClient.connect(clientId.c_str())) {
+      Serial.println("connected");
+
+      // 
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(mqttClient.state());
+    }
+  }
+}
 void setup() {
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
@@ -271,14 +321,43 @@ void setup() {
 
   // Interrupts potentially cause timeouts when reading the DHT22s
   DHT.setDisableIRQ(true);
+
+  mqttClient.setServer(mqtt_server, 1883);
+  mqttClient.setCallback(mqttMessageCallback);
+
+  while (!mqttClient.connected()) {
+    reconnectToMqttServer();
+    if (!mqttClient.connected()) {
+      Serial.println("Trying again in 5 seconds");
+      delay(5000);
+    }
+  }
+}
+
+void sendMessage(const char* topic, float value) {
+  strcpy(mqttMessage.topic, topic);
+  dtostrf(value, 6, 2, mqttMessage.body); // Leave room for too large numbers!
+  mqttClient.publish(mqttMessage.topic, mqttMessage.body);
 }
 
 void loop() {
+  if (!mqttClient.loop()) {
+    reconnectToMqttServer();
+  }
   ntp->sendNTPpacket();
 
   sensorReading sensor1Reading = readSensor(DHT22_PIN_1, sensor1Stats);
+
+  sendMessage(TEMPERATURE_TOPIC_1, sensor1Reading.temperatureCelsius);
+  sendMessage(HUMIDITY_TOPIC_1, sensor1Reading.relativeHumidity);
+
   sensorReading sensor2Reading = readSensor(DHT22_PIN_2, sensor2Stats);
+  sendMessage(TEMPERATURE_TOPIC_2, sensor2Reading.temperatureCelsius);
+  sendMessage(HUMIDITY_TOPIC_2, sensor2Reading.relativeHumidity);
+
   sensorReading averages = computeAverages(sensor1Reading, sensor2Reading);
+  sendMessage(TEMPERATURE_TOPIC_AVERAGE, averages.temperatureCelsius);
+  sendMessage(HUMIDITY_TOPIC_AVERAGE, averages.relativeHumidity);
 
   processTemperature(averages.temperatureCelsius);
 
