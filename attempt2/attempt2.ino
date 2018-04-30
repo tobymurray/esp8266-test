@@ -48,6 +48,7 @@ const char* TEMPERATURE_TOPIC_AVERAGE = "desk/temperature/average";
 const char* HUMIDITY_TOPIC_1 = "desk/humidity/1";
 const char* HUMIDITY_TOPIC_2 = "desk/humidity/2";
 const char* HUMIDITY_TOPIC_AVERAGE = "desk/humidity/average";
+const char* FREE_MEMORY_TOPIC = "desk/freeMemory";
 
 bool temperatureRising = true;
 bool humidityRising = true;
@@ -90,6 +91,8 @@ TobyNtp* ntp;
 
 WiFiClient wiFiClient;
 PubSubClient mqttClient(wiFiClient);
+
+time_t ntpTime;
 
 struct tm * timeinfo;
 
@@ -142,9 +145,8 @@ void printAverages(sensorReading averages, sensorReading reading1, sensorReading
   float temperatureDifference = fabsf(reading1.temperatureCelsius - reading2.temperatureCelsius);
   float humidityDifference = fabsf(reading1.relativeHumidity - reading2.relativeHumidity);
 
-  time_t time = ntp->getTime();
-  if (time) {
-    timeinfo = localtime(&time);
+  if (ntpTime) {
+    timeinfo = localtime(&ntpTime);
     char* timeString = asctime(timeinfo);
     // Strip the newline off the string
     timeString[strlen(timeString) - 1] = 0;
@@ -335,6 +337,7 @@ void setup() {
   ntp = new TobyNtp(UDP, "0.ca.pool.ntp.org");
 
   ntp->sendNTPpacket(true);
+  ntpTime = ntp->getTime();
 
   // Interrupts potentially cause timeouts when reading the DHT22s
   DHT.setDisableIRQ(true);
@@ -362,6 +365,7 @@ void loop() {
     reconnectToMqttServer();
   }
   ntp->sendNTPpacket();
+  ntpTime = ntp->getTime();
 
   sensorReading sensor1Reading = readSensor(DHT22_PIN_1, sensor1Stats);
 
@@ -375,11 +379,13 @@ void loop() {
   sensorReading averages = computeAverages(sensor1Reading, sensor2Reading);
   sendMessage(TEMPERATURE_TOPIC_AVERAGE, averages.temperatureCelsius);
   sendMessage(HUMIDITY_TOPIC_AVERAGE, averages.relativeHumidity);
+  
+  sendMessage(FREE_MEMORY_TOPIC, esp.getFreeHeap());
 
   processTemperature(averages.temperatureCelsius);
 
   // Throttle statistic output so it's not overwhelming
-  if (sensor1Stats.total % 50 == 0) {
+  if (sensor1Stats.total % 100 == 0) {
     printStatistics(sensor1Stats);
     printStatistics(sensor2Stats);
   }
