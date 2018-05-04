@@ -27,6 +27,7 @@ const char* mqtt_server = "192.168.1.2";
 #define HUMIDITY_PIN D7 // The GPIO to turn the mister on or off
 #define DHT22_PIN_1 D1
 #define DHT22_PIN_2 D2
+#define SENSOR_POWER_PIN D3
 
 // Values to bound what constitutes a correct sensor reading
 const float MAX_REASONABLE_TEMPERATURE = 50;
@@ -54,6 +55,7 @@ bool temperatureRising = true;
 bool humidityRising = true;
 
 int consecutiveFailedTemperatureReads = 0;
+int consecutiveSensorTimeouts = 0;
 
 int cyclesInHeatCoolLoop = 0;
 int cyclesToHeatToMax = 0;
@@ -122,6 +124,7 @@ sensorReading readSensor(int sensorNumber, uint8_t dhtGpio, statistics& stats) {
     switch (checkStatus) {
     case DHTLIB_OK:
         stats.ok++;
+        consecutiveSensorTimeouts = 0;
         return { DHT.temperature, DHT.humidity, stop - start };
     case DHTLIB_ERROR_CHECKSUM:
         Serial.print("Sensor ");
@@ -129,6 +132,7 @@ sensorReading readSensor(int sensorNumber, uint8_t dhtGpio, statistics& stats) {
         Serial.print(": checksum error on read #");
         Serial.println(stats.total);
         stats.crc_error++;
+        consecutiveSensorTimeouts = 0;
         break;
     case DHTLIB_ERROR_TIMEOUT:
         Serial.print("Sensor ");
@@ -136,6 +140,7 @@ sensorReading readSensor(int sensorNumber, uint8_t dhtGpio, statistics& stats) {
         Serial.print(": timeout error on read #");
         Serial.println(stats.total);
         stats.time_out++;
+        consecutiveSensorTimeouts++;
         break;
     default:
         Serial.print("Sensor ");
@@ -143,6 +148,7 @@ sensorReading readSensor(int sensorNumber, uint8_t dhtGpio, statistics& stats) {
         Serial.print(": unknown error on read #");
         Serial.println(stats.total);
         stats.unknown++;
+        consecutiveSensorTimeouts = 0;
         break;
     }
 
@@ -235,6 +241,14 @@ void turnHeatOff() {
   digitalWrite(HEAT_PIN, LOW);
 }
 
+void turnSensorsOn() {
+  digitalWrite(SENSOR_POWER_PIN, HIGH);
+}
+
+void turnSensorsOff() {
+  digitalWrite(SENSOR_POWER_PIN, LOW);
+}
+
 void adjustHeat(float temperatureCelsius) {
   if (temperatureRising) {
     if (temperatureCelsius <= MAX_TEMPERATURE) {
@@ -293,6 +307,7 @@ void processTemperature(float temperatureCelsius) {
     consecutiveFailedTemperatureReads++;
     // If it's been a minute (30 * 2 seconds) without a valid temperature value, turn off the heat to fail safe
     if (consecutiveFailedTemperatureReads >= 30) {
+      Serial.println("No recent viable temperature reading, turning off heat");
       turnHeatOff();
     }
   } else {
@@ -335,6 +350,7 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   pinMode(HEAT_PIN, OUTPUT);
   pinMode(HUMIDITY_PIN, OUTPUT);
+  pinMode(SENSOR_POWER_PIN, OUTPUT);
 
   // Ensure the timezone is correctly set
   setenv("TZ", "EST5EDT", 1);
@@ -361,6 +377,8 @@ void setup() {
       delay(5000);
     }
   }
+
+  turnSensorsOn();
 }
 
 void sendMessage(const char* topic, float value) {
@@ -389,6 +407,15 @@ void loop() {
   sendMessage(HUMIDITY_TOPIC_AVERAGE, averages.relativeHumidity);
   
   sendMessage(FREE_MEMORY_TOPIC, esp.getFreeHeap());
+
+    // It's unlikely temperature reads will fail sequentially other than persistent timeout (which requires power cycling)
+  if (consecutiveSensorTimeouts >= 10) {
+    Serial.println("Power cycling sensors");
+    turnSensorsOff();
+    delay(100);
+    turnSensorsOn();
+    consecutiveSensorTimeouts = 0;
+  }
 
   processTemperature(averages.temperatureCelsius);
 
