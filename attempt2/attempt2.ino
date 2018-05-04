@@ -161,11 +161,7 @@ void printAverages(sensorReading averages, sensorReading reading1, sensorReading
   float humidityDifference = fabsf(reading1.relativeHumidity - reading2.relativeHumidity);
 
   if (ntpTime) {
-    timeinfo = localtime(&ntpTime);
-    char* timeString = asctime(timeinfo);
-    // Strip the newline off the string
-    timeString[strlen(timeString) - 1] = 0;
-    Serial.print(timeString);
+    Serial.print(ntpTimeToString());
     Serial.print(": ");
   }
 
@@ -233,6 +229,28 @@ void setUpWiFi() {
   Serial.println(WiFi.localIP());
 }
 
+void initializeRealTime() {
+  ntp = new TobyNtp(UDP, "0.ca.pool.ntp.org");
+  Serial.print("Querying NTP server 0.ca.pool.ntp.org for real time");
+
+  ntp->sendNTPpacket(true);
+  ntpTime = ntp->getTime();
+  while(ntpTime == 0) {
+    delay(500);
+    ntpTime = ntp->getTime();
+    Serial.print(".");
+  }
+  Serial.print(" obtained time: ");
+  Serial.println(ntpTimeToString());
+}
+
+char * ntpTimeToString() {
+  timeinfo = localtime(&ntpTime);
+  char* timeString = asctime(timeinfo);
+  // Strip the newline off the string
+  timeString[strlen(timeString) - 1] = 0;
+  return timeString;
+}
 void turnHeatOn() {
   digitalWrite(HEAT_PIN, HIGH);
 }
@@ -351,6 +369,7 @@ void setup() {
   pinMode(HEAT_PIN, OUTPUT);
   pinMode(HUMIDITY_PIN, OUTPUT);
   pinMode(SENSOR_POWER_PIN, OUTPUT);
+  turnSensorsOn();
 
   // Ensure the timezone is correctly set
   setenv("TZ", "EST5EDT", 1);
@@ -359,10 +378,8 @@ void setup() {
   UDP.begin(123);
   Serial.print("Started UDP on port ");
   Serial.println(UDP.localPort());
-  ntp = new TobyNtp(UDP, "0.ca.pool.ntp.org");
 
-  ntp->sendNTPpacket(true);
-  ntpTime = ntp->getTime();
+  initializeRealTime();
 
   // Interrupts potentially cause timeouts when reading the DHT22s
   DHT.setDisableIRQ(true);
@@ -377,8 +394,6 @@ void setup() {
       delay(5000);
     }
   }
-
-  turnSensorsOn();
 }
 
 void sendMessage(const char* topic, float value) {
