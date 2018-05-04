@@ -96,9 +96,9 @@ time_t ntpTime;
 
 struct tm * timeinfo;
 
-void printStatistics(statistics& stats) {
-  esp.getFreeHeap();
-  Serial.println("Total\t\t\tOK\t\t\tChecksum error\t\tTimeout\t\t\tUnknown\t\t\tFree heap");
+void printStatistics(int sensorNumber, statistics& stats) {
+  Serial.print(sensorNumber);
+  Serial.print(": ");
   Serial.print(stats.total);
   Serial.print("\t\t\t");
   Serial.print(stats.ok);
@@ -113,7 +113,7 @@ void printStatistics(statistics& stats) {
   Serial.println("");
 }
 
-sensorReading readSensor(uint8_t dhtGpio, statistics& stats) {
+sensorReading readSensor(int sensorNumber, uint8_t dhtGpio, statistics& stats) {
     uint32_t start = micros();
     int checkStatus = DHT.read22(dhtGpio);
     uint32_t stop = micros();
@@ -124,15 +124,24 @@ sensorReading readSensor(uint8_t dhtGpio, statistics& stats) {
         stats.ok++;
         return { DHT.temperature, DHT.humidity, stop - start };
     case DHTLIB_ERROR_CHECKSUM:
-        Serial.println("Checksum error");
+        Serial.print("Sensor ");
+        Serial.print(sensorNumber);
+        Serial.print(": checksum error on read #");
+        Serial.println(stats.total);
         stats.crc_error++;
         break;
     case DHTLIB_ERROR_TIMEOUT:
-        Serial.println("timeout error");
+        Serial.print("Sensor ");
+        Serial.print(sensorNumber);
+        Serial.print(": timeout error on read #");
+        Serial.println(stats.total);
         stats.time_out++;
         break;
     default:
-        Serial.println("unknown error");
+        Serial.print("Sensor ");
+        Serial.print(sensorNumber);
+        Serial.print(": unknown error on read #");
+        Serial.println(stats.total);
         stats.unknown++;
         break;
     }
@@ -367,12 +376,11 @@ void loop() {
   ntp->sendNTPpacket();
   ntpTime = ntp->getTime();
 
-  sensorReading sensor1Reading = readSensor(DHT22_PIN_1, sensor1Stats);
-
+  sensorReading sensor1Reading = readSensor(1, DHT22_PIN_1, sensor1Stats);
   sendMessage(TEMPERATURE_TOPIC_1, sensor1Reading.temperatureCelsius);
   sendMessage(HUMIDITY_TOPIC_1, sensor1Reading.relativeHumidity);
 
-  sensorReading sensor2Reading = readSensor(DHT22_PIN_2, sensor2Stats);
+  sensorReading sensor2Reading = readSensor(2, DHT22_PIN_2, sensor2Stats);
   sendMessage(TEMPERATURE_TOPIC_2, sensor2Reading.temperatureCelsius);
   sendMessage(HUMIDITY_TOPIC_2, sensor2Reading.relativeHumidity);
 
@@ -385,9 +393,10 @@ void loop() {
   processTemperature(averages.temperatureCelsius);
 
   // Throttle statistic output so it's not overwhelming
-  if (sensor1Stats.total % 100 == 0) {
-    printStatistics(sensor1Stats);
-    printStatistics(sensor2Stats);
+  if (sensor1Stats.total % 50 == 0) {
+    Serial.println("Total\t\t\tOK\t\t\tChecksum error\t\tTimeout\t\t\tUnknown\t\t\tFree heap");
+    printStatistics(1, sensor1Stats);
+    printStatistics(2, sensor2Stats);
   }
 
   if ( !isnan(averages.relativeHumidity)) {
