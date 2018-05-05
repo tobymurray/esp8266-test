@@ -50,6 +50,7 @@ const char* HUMIDITY_TOPIC_1 = "desk/humidity/1";
 const char* HUMIDITY_TOPIC_2 = "desk/humidity/2";
 const char* HUMIDITY_TOPIC_AVERAGE = "desk/humidity/average";
 const char* FREE_MEMORY_TOPIC = "desk/freeMemory";
+const char* ELAPSED_TIME_IN_SECONDS_TOPIC = "desk/elapsedSeconds";
 
 bool temperatureRising = true;
 bool humidityRising = true;
@@ -63,6 +64,8 @@ int cyclesToCoolToMin = 0;
 
 EspClass esp;
 dht DHT;
+
+unsigned long unixTimeAtStart;
 
 struct statistics {
   uint32_t total;
@@ -242,15 +245,19 @@ void initializeRealTime() {
   }
   Serial.print(" obtained time: ");
   Serial.println(ntpTimeToString());
+  unixTimeAtStart = ntpTime;
 }
 
 char * ntpTimeToString() {
   timeinfo = localtime(&ntpTime);
+  Serial.print("The current hour is: ");
+  Serial.println(timeinfo->tm_hour);
   char* timeString = asctime(timeinfo);
   // Strip the newline off the string
   timeString[strlen(timeString) - 1] = 0;
   return timeString;
 }
+
 void turnHeatOn() {
   digitalWrite(HEAT_PIN, HIGH);
 }
@@ -422,6 +429,7 @@ void loop() {
   sendMessage(HUMIDITY_TOPIC_AVERAGE, averages.relativeHumidity);
   
   sendMessage(FREE_MEMORY_TOPIC, esp.getFreeHeap());
+  sendMessage(ELAPSED_TIME_IN_SECONDS_TOPIC, ntpTime - unixTimeAtStart);
 
     // It's unlikely temperature reads will fail sequentially other than persistent timeout (which requires power cycling)
   if (consecutiveSensorTimeouts >= 10) {
