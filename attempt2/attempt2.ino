@@ -22,17 +22,20 @@ const char* mqtt_server = "192.168.1.2";
 // For data about the ESP8266 itself (memory/VCC)
 #include <Esp.h>
 
-#define LED_PIN 2
+#define LED_PIN D4
 #define HEAT_PIN D6 // The GPIO to turn the heat on or off
 #define HUMIDITY_PIN D7 // The GPIO to turn the mister on or off
 #define DHT22_PIN_1 D1
 #define DHT22_PIN_2 D2
 #define SENSOR_POWER_PIN D3
-#define BUTTON_PIN D4
+#define BUTTON_PIN D5
 
 // Values to bound what constitutes a correct sensor reading
 const float MAX_REASONABLE_TEMPERATURE = 50;
 const float MIN_REASONABLE_TEMPERATURE = 10;
+
+// Throttle sensor reads to avoid polling too frequently
+const unsigned int MIN_SENSOR_READ_MILLIS = 2500;
 
 // Definition of window of acceptable temperature - avoids constantly flicking heat on and off
 const float MAX_TEMPERATURE = 37.9;
@@ -72,7 +75,8 @@ unsigned long unixTimeAtStart;
 unsigned long lastDebounceTime = 0;
 int buttonState;
 int lastButtonState = HIGH;
-
+unsigned long lastSensorReadMillis = 0;
+bool boardLedState = false;
 
 struct statistics {
   uint32_t total;
@@ -440,50 +444,55 @@ void loop() {
   if (!mqttClient.loop()) {
     reconnectToMqttServer();
   }
-  ntp->sendNTPpacket();
-  ntpTime = ntp->getTime();
 
   handleButtonState(digitalRead(BUTTON_PIN));
 
-  sensorReading sensor1Reading = readSensor(1, DHT22_PIN_1, sensor1Stats);
-  sendMessage(TEMPERATURE_TOPIC_1, sensor1Reading.temperatureCelsius);
-  sendMessage(HUMIDITY_TOPIC_1, sensor1Reading.relativeHumidity);
+  unsigned long currentMillis = millis();
 
-  sensorReading sensor2Reading = readSensor(2, DHT22_PIN_2, sensor2Stats);
-  sendMessage(TEMPERATURE_TOPIC_2, sensor2Reading.temperatureCelsius);
-  sendMessage(HUMIDITY_TOPIC_2, sensor2Reading.relativeHumidity);
+  if (currentMillis - lastSensorReadMillis >= MIN_SENSOR_READ_MILLIS) {
+    lastSensorReadMillis = currentMillis;
 
-  sensorReading averages = computeAverages(sensor1Reading, sensor2Reading);
-  sendMessage(TEMPERATURE_TOPIC_AVERAGE, averages.temperatureCelsius);
-  sendMessage(HUMIDITY_TOPIC_AVERAGE, averages.relativeHumidity);
-  
-  sendMessage(FREE_MEMORY_TOPIC, esp.getFreeHeap());
-  sendMessage(ELAPSED_TIME_IN_SECONDS_TOPIC, ntpTime - unixTimeAtStart);
+    sensorReading sensor1Reading = readSensor(1, DHT22_PIN_1, sensor1Stats);
+    sendMessage(TEMPERATURE_TOPIC_1, sensor1Reading.temperatureCelsius);
+    sendMessage(HUMIDITY_TOPIC_1, sensor1Reading.relativeHumidity);
 
-    // It's unlikely temperature reads will fail sequentially other than persistent timeout (which requires power cycling)
-  if (consecutiveSensorTimeouts >= 10) {
-    Serial.println("Power cycling sensors");
-    turnSensorsOff();
-    delay(100);
-    turnSensorsOn();
-    consecutiveSensorTimeouts = 0;
+    sensorReading sensor2Reading = readSensor(2, DHT22_PIN_2, sensor2Stats);
+    sendMessage(TEMPERATURE_TOPIC_2, sensor2Reading.temperatureCelsius);
+    sendMessage(HUMIDITY_TOPIC_2, sensor2Reading.relativeHumidity);
+
+    sensorReading averages = computeAverages(sensor1Reading, sensor2Reading);
+    sendMessage(TEMPERATURE_TOPIC_AVERAGE, averages.temperatureCelsius);
+    sendMessage(HUMIDITY_TOPIC_AVERAGE, averages.relativeHumidity);
+    
+    sendMessage(FREE_MEMORY_TOPIC, esp.getFreeHeap());
+    sendMessage(ELAPSED_TIME_IN_SECONDS_TOPIC, ntpTime - unixTimeAtStart);
+
+      // It's unlikely temperature reads will fail sequentially other than persistent timeout (which requires power cycling)
+    if (consecutiveSensorTimeouts >= 10) {
+      Serial.println("Power cycling sensors");
+      turnSensorsOff();
+      delay(100);
+      turnSensorsOn();
+      consecutiveSensorTimeouts = 0;
+    }
+
+    processTemperature(averages.temperatureCelsius);
+
+    // Throttle statistic output so it's not overwhelming
+    if (sensor1Stats.total % 50 == 0) {
+      Serial.println("Total\t\t\tOK\t\t\tChecksum error\t\tTimeout\t\t\tUnknown\t\t\tFree heap");
+      printStatistics(1, sensor1Stats);
+      printStatistics(2, sensor2Stats);
+    }
+
+    if ( !isnan(averages.relativeHumidity)) {
+      adjustHumidity(averages.relativeHumidity);
+    } 
+
+    ntp->sendNTPpacket();
+    ntpTime = ntp->getTime();
+    
+    boardLedState = !boardLedState;
+    digitalWrite(LED_PIN, boardLedState ? HIGH : LOW);
   }
-
-  processTemperature(averages.temperatureCelsius);
-
-  // Throttle statistic output so it's not overwhelming
-  if (sensor1Stats.total % 50 == 0) {
-    Serial.println("Total\t\t\tOK\t\t\tChecksum error\t\tTimeout\t\t\tUnknown\t\t\tFree heap");
-    printStatistics(1, sensor1Stats);
-    printStatistics(2, sensor2Stats);
-  }
-
-  if ( !isnan(averages.relativeHumidity)) {
-    adjustHumidity(averages.relativeHumidity);
-  }
-  
-  delay(1000);
-  digitalWrite(LED_PIN, LOW);
-  delay(1000);
-  digitalWrite(LED_PIN, HIGH);
 }
