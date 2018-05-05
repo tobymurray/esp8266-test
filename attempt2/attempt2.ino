@@ -28,6 +28,7 @@ const char* mqtt_server = "192.168.1.2";
 #define DHT22_PIN_1 D1
 #define DHT22_PIN_2 D2
 #define SENSOR_POWER_PIN D3
+#define BUTTON_PIN D4
 
 // Values to bound what constitutes a correct sensor reading
 const float MAX_REASONABLE_TEMPERATURE = 50;
@@ -52,6 +53,8 @@ const char* HUMIDITY_TOPIC_AVERAGE = "desk/humidity/average";
 const char* FREE_MEMORY_TOPIC = "desk/freeMemory";
 const char* ELAPSED_TIME_IN_SECONDS_TOPIC = "desk/elapsedSeconds";
 
+const unsigned long DEBOUNCE_MILLIS = 50;
+
 bool temperatureRising = true;
 bool humidityRising = true;
 
@@ -66,6 +69,10 @@ EspClass esp;
 dht DHT;
 
 unsigned long unixTimeAtStart;
+unsigned long lastDebounceTime = 0;
+int buttonState;
+int lastButtonState = HIGH;
+
 
 struct statistics {
   uint32_t total;
@@ -377,6 +384,8 @@ void setup() {
   pinMode(HUMIDITY_PIN, OUTPUT);
   pinMode(SENSOR_POWER_PIN, OUTPUT);
   turnSensorsOn();
+  // Pull up to ensure input isn't floating when button is not pressed
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
 
   // Ensure the timezone is correctly set
   setenv("TZ", "EST5EDT", 1);
@@ -409,12 +418,32 @@ void sendMessage(const char* topic, float value) {
   mqttClient.publish(mqttMessage.topic, mqttMessage.body);
 }
 
+void handleButtonState(int currentButtonState) {
+  if (currentButtonState != lastButtonState) {
+    lastDebounceTime = millis();
+  }
+
+  if ((millis() - lastDebounceTime) > DEBOUNCE_MILLIS) {
+    if (currentButtonState != buttonState) {
+      buttonState = currentButtonState;
+
+      if (buttonState == LOW) {
+        Serial.println("Button has been pressed!");
+      }
+    }
+  }
+
+  lastButtonState = currentButtonState;
+}
+
 void loop() {
   if (!mqttClient.loop()) {
     reconnectToMqttServer();
   }
   ntp->sendNTPpacket();
   ntpTime = ntp->getTime();
+
+  handleButtonState(digitalRead(BUTTON_PIN));
 
   sensorReading sensor1Reading = readSensor(1, DHT22_PIN_1, sensor1Stats);
   sendMessage(TEMPERATURE_TOPIC_1, sensor1Reading.temperatureCelsius);
