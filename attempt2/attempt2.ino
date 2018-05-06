@@ -39,11 +39,11 @@ const float MIN_REASONABLE_TEMPERATURE = 10;
 const unsigned int MIN_SENSOR_READ_MILLIS = 2500;
 
 // Definition of window of acceptable temperature - avoids constantly flicking heat on and off
-const float MAX_TEMPERATURE = 37.9;
-const float MIN_TEMPERATURE = 37.7;
+const float MAX_STARTING_TEMPERATURE = 37.9;
+const float MIN_STARTING_TEMPERATURE = 37.7;
 
-const float MAX_HUMIDITY = 65;
-const float MIN_HUMIDITY = 55;
+const float MAX_STARTING_HUMIDITY = 65;
+const float MIN_STARTING_HUMIDITY = 55;
 
 const char* ssid = SSID;
 const char* password = PASSWORD;
@@ -292,7 +292,7 @@ void turnSensorsOff() {
 
 void adjustHeat(float temperatureCelsius) {
   if (temperatureRising) {
-    if (temperatureCelsius <= MAX_TEMPERATURE) {
+    if (temperatureCelsius <= MAX_STARTING_TEMPERATURE) {
       cyclesToHeatToMax++;
       cyclesInHeatCoolLoop++;
       turnHeatOn();
@@ -309,7 +309,7 @@ void adjustHeat(float temperatureCelsius) {
       temperatureRising = false;
     }
   } else { // Temperature is falling
-    if (temperatureCelsius <= MIN_TEMPERATURE) {
+    if (temperatureCelsius <= MIN_STARTING_TEMPERATURE) {
       // Serial.print("Time to drop to minimum temperature roughly ");
       // Serial.print(cyclesToCoolToMin * 2);
       // Serial.println(" seconds.");
@@ -327,14 +327,14 @@ void adjustHeat(float temperatureCelsius) {
 
 void adjustHumidity(float relativeHumidity) {
   if (humidityRising) {
-    if (relativeHumidity <= MAX_HUMIDITY) {
+    if (relativeHumidity <= MAX_STARTING_HUMIDITY) {
       digitalWrite(HUMIDITY_PIN, HIGH);
     } else {
       digitalWrite(HUMIDITY_PIN, LOW);
       humidityRising = false;
     }
   } else {
-    if (relativeHumidity <= MIN_HUMIDITY) {
+    if (relativeHumidity <= MIN_STARTING_HUMIDITY) {
       digitalWrite(HUMIDITY_PIN, HIGH);
       humidityRising = true;
     } else {
@@ -481,7 +481,10 @@ void loop() {
     sendMessage(FREE_MEMORY_TOPIC, esp.getFreeHeap());
     sendMessage(ELAPSED_TIME_IN_SECONDS_TOPIC, ntpTime - unixTimeAtBoot);
     if (unixTimeOnStart != 0) {
-      sendMessage(TOTAL_TIME_REMAINING_TOPIC, PROGRAM_DURATION - (ntpTime - unixTimeOnStart));
+      time_t elapsedTimeSinceStart = ntpTime - unixTimeOnStart;
+      sendMessage(TOTAL_TIME_REMAINING_TOPIC, PROGRAM_DURATION - elapsedTimeSinceStart);
+
+
     }
 
       // It's unlikely temperature reads will fail sequentially other than persistent timeout (which requires power cycling)
