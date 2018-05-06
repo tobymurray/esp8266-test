@@ -28,7 +28,7 @@ const char* mqtt_server = "192.168.1.2";
 #define DHT22_PIN_1 D1
 #define DHT22_PIN_2 D2
 #define SENSOR_POWER_PIN D3
-#define BUTTON_PIN D5
+#define START_BUTTON_PIN D5
 
 // Values to bound what constitutes a correct sensor reading
 const float MAX_REASONABLE_TEMPERATURE = 50;
@@ -73,8 +73,8 @@ dht DHT;
 
 unsigned long unixTimeAtStart;
 unsigned long lastDebounceTime = 0;
-int buttonState;
-int lastButtonState = HIGH;
+int startButtonState;
+int lastStartButtonState = HIGH;
 unsigned long lastSensorReadMillis = 0;
 bool boardLedState = false;
 
@@ -389,7 +389,7 @@ void setup() {
   pinMode(SENSOR_POWER_PIN, OUTPUT);
   turnSensorsOn();
   // Pull up to ensure input isn't floating when button is not pressed
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  pinMode(START_BUTTON_PIN, INPUT_PULLUP);
 
   // Ensure the timezone is correctly set
   setenv("TZ", "EST5EDT", 1);
@@ -423,21 +423,21 @@ void sendMessage(const char* topic, float value) {
 }
 
 void handleButtonState(int currentButtonState) {
-  if (currentButtonState != lastButtonState) {
+  if (currentButtonState != lastStartButtonState) {
     lastDebounceTime = millis();
   }
 
   if ((millis() - lastDebounceTime) > DEBOUNCE_MILLIS) {
-    if (currentButtonState != buttonState) {
-      buttonState = currentButtonState;
+    if (currentButtonState != startButtonState) {
+      startButtonState = currentButtonState;
 
-      if (buttonState == LOW) {
+      if (startButtonState == LOW) {
         Serial.println("Button has been pressed!");
       }
     }
   }
 
-  lastButtonState = currentButtonState;
+  lastStartButtonState = currentButtonState;
 }
 
 void loop() {
@@ -445,7 +445,7 @@ void loop() {
     reconnectToMqttServer();
   }
 
-  handleButtonState(digitalRead(BUTTON_PIN));
+  handleButtonState(digitalRead(START_BUTTON_PIN));
 
   unsigned long currentMillis = millis();
 
