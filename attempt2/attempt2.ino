@@ -29,6 +29,7 @@ const char* mqtt_server = "192.168.1.2";
 #define DHT22_PIN_2 D2
 #define SENSOR_POWER_PIN D3
 #define START_BUTTON_PIN D5
+#define PROGRAM_DURATION 1814000 // 21 days in seconds
 
 // Values to bound what constitutes a correct sensor reading
 const float MAX_REASONABLE_TEMPERATURE = 50;
@@ -55,27 +56,33 @@ const char* HUMIDITY_TOPIC_2 = "desk/humidity/2";
 const char* HUMIDITY_TOPIC_AVERAGE = "desk/humidity/average";
 const char* FREE_MEMORY_TOPIC = "desk/freeMemory";
 const char* ELAPSED_TIME_IN_SECONDS_TOPIC = "desk/elapsedSeconds";
+const char* PROGRAM_START_TOPIC = "desk/programStartSeconds";
+const char* TOTAL_TIME_REMAINING_TOPIC = "desk/totalTimeRemainingSeconds";
 
 const unsigned long DEBOUNCE_MILLIS = 50;
 
 bool temperatureRising = true;
 bool humidityRising = true;
 
-int consecutiveFailedTemperatureReads = 0;
-int consecutiveSensorTimeouts = 0;
+int consecutiveFailedTemperatureReads;
+int consecutiveSensorTimeouts;
 
-int cyclesInHeatCoolLoop = 0;
-int cyclesToHeatToMax = 0;
-int cyclesToCoolToMin = 0;
+int cyclesInHeatCoolLoop;
+int cyclesToHeatToMax;
+int cyclesToCoolToMin;
 
 EspClass esp;
 dht DHT;
 
-unsigned long unixTimeAtStart;
-unsigned long lastDebounceTime = 0;
+// The UNIX time when the script first started running (and obtained an NTP response)
+unsigned long unixTimeAtBoot;
+
+// The UNIX time when the start button was first pressed
+time_t unixTimeOnStart;
+unsigned long lastDebounceTime;
 int startButtonState;
 int lastStartButtonState = HIGH;
-unsigned long lastSensorReadMillis = 0;
+unsigned long lastSensorReadMillis;
 bool boardLedState = false;
 
 struct statistics {
@@ -256,13 +263,11 @@ void initializeRealTime() {
   }
   Serial.print(" obtained time: ");
   Serial.println(ntpTimeToString());
-  unixTimeAtStart = ntpTime;
+  unixTimeAtBoot = ntpTime;
 }
 
 char * ntpTimeToString() {
   timeinfo = localtime(&ntpTime);
-  Serial.print("The current hour is: ");
-  Serial.println(timeinfo->tm_hour);
   char* timeString = asctime(timeinfo);
   // Strip the newline off the string
   timeString[strlen(timeString) - 1] = 0;
@@ -432,7 +437,10 @@ void handleButtonState(int currentButtonState) {
       startButtonState = currentButtonState;
 
       if (startButtonState == LOW) {
-        Serial.println("Button has been pressed!");
+        Serial.print("Start button has been pressed at ");
+        unixTimeOnStart = ntp->getTime();
+        Serial.println(ctime(&unixTimeOnStart));
+        sendMessage(PROGRAM_START_TOPIC, unixTimeOnStart);
       }
     }
   }
@@ -445,12 +453,18 @@ void loop() {
     reconnectToMqttServer();
   }
 
-  handleButtonState(digitalRead(START_BUTTON_PIN));
+  // If the start button has never been pressed
+  if (unixTimeOnStart == 0) {
+    handleButtonState(digitalRead(START_BUTTON_PIN));
+  }
 
   unsigned long currentMillis = millis();
 
   if (currentMillis - lastSensorReadMillis >= MIN_SENSOR_READ_MILLIS) {
     lastSensorReadMillis = currentMillis;
+    
+    ntp->sendNTPpacket();
+    ntpTime = ntp->getTime();
 
     sensorReading sensor1Reading = readSensor(1, DHT22_PIN_1, sensor1Stats);
     sendMessage(TEMPERATURE_TOPIC_1, sensor1Reading.temperatureCelsius);
@@ -465,7 +479,10 @@ void loop() {
     sendMessage(HUMIDITY_TOPIC_AVERAGE, averages.relativeHumidity);
     
     sendMessage(FREE_MEMORY_TOPIC, esp.getFreeHeap());
-    sendMessage(ELAPSED_TIME_IN_SECONDS_TOPIC, ntpTime - unixTimeAtStart);
+    sendMessage(ELAPSED_TIME_IN_SECONDS_TOPIC, ntpTime - unixTimeAtBoot);
+    if (unixTimeOnStart != 0) {
+      sendMessage(TOTAL_TIME_REMAINING_TOPIC, PROGRAM_DURATION - (ntpTime - unixTimeOnStart));
+    }
 
       // It's unlikely temperature reads will fail sequentially other than persistent timeout (which requires power cycling)
     if (consecutiveSensorTimeouts >= 10) {
@@ -488,9 +505,6 @@ void loop() {
     if ( !isnan(averages.relativeHumidity)) {
       adjustHumidity(averages.relativeHumidity);
     } 
-
-    ntp->sendNTPpacket();
-    ntpTime = ntp->getTime();
     
     boardLedState = !boardLedState;
     digitalWrite(LED_PIN, boardLedState ? HIGH : LOW);
