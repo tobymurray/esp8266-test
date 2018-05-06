@@ -30,6 +30,9 @@ const char* mqtt_server = "192.168.1.2";
 #define SENSOR_POWER_PIN D3
 #define START_BUTTON_PIN D5
 #define PROGRAM_DURATION 1814000 // 21 days in seconds
+#define LOCKDOWN_TIME_IN_SECONDS 1555000 // 18 days in seconds
+
+const int FOURTEEN_DAYS_IN_SECONDS = 14 * 24 * 60 * 60;
 
 // Values to bound what constitutes a correct sensor reading
 const float MAX_REASONABLE_TEMPERATURE = 50;
@@ -40,10 +43,13 @@ const unsigned int MIN_SENSOR_READ_MILLIS = 2500;
 
 // Definition of window of acceptable temperature - avoids constantly flicking heat on and off
 const float MAX_STARTING_TEMPERATURE = 37.9;
-const float MIN_STARTING_TEMPERATURE = 37.7;
+// Temperature difference to allow before taking action (max minus this value)
+const float TEMPERATURE_WINDOW = 0.2;
 
-const float MAX_STARTING_HUMIDITY = 65;
-const float MIN_STARTING_HUMIDITY = 55;
+const float MAX_STARTING_HUMIDITY = 60;
+const float MAX_LOCKDOWN_HUMIDITY = 70;
+// Humidity difference to allow before taking action (max minus this value)
+const float HUMIDITY_WINDOW = 10;
 
 const char* ssid = SSID;
 const char* password = PASSWORD;
@@ -290,9 +296,10 @@ void turnSensorsOff() {
   digitalWrite(SENSOR_POWER_PIN, LOW);
 }
 
-void adjustHeat(float temperatureCelsius) {
+void adjustHeat(float temperatureCelsius, unsigned long elapsedSecondsSinceStart) {
+  float maxTemperature = calculateMaxTemperature(elapsedSecondsSinceStart);
   if (temperatureRising) {
-    if (temperatureCelsius <= MAX_STARTING_TEMPERATURE) {
+    if (temperatureCelsius <= maxTemperature) {
       cyclesToHeatToMax++;
       cyclesInHeatCoolLoop++;
       turnHeatOn();
@@ -309,7 +316,7 @@ void adjustHeat(float temperatureCelsius) {
       temperatureRising = false;
     }
   } else { // Temperature is falling
-    if (temperatureCelsius <= MIN_STARTING_TEMPERATURE) {
+    if (temperatureCelsius <= maxTemperature - TEMPERATURE_WINDOW) {
       // Serial.print("Time to drop to minimum temperature roughly ");
       // Serial.print(cyclesToCoolToMin * 2);
       // Serial.println(" seconds.");
@@ -325,16 +332,17 @@ void adjustHeat(float temperatureCelsius) {
   }
 }
 
-void adjustHumidity(float relativeHumidity) {
+void adjustHumidity(float relativeHumidity, unsigned long elapsedSecondsSinceStart) {
+  float maxHumidity = calculateMaxHumidity(elapsedSecondsSinceStart);
   if (humidityRising) {
-    if (relativeHumidity <= MAX_STARTING_HUMIDITY) {
+    if (relativeHumidity <= maxHumidity) {
       digitalWrite(HUMIDITY_PIN, HIGH);
     } else {
       digitalWrite(HUMIDITY_PIN, LOW);
       humidityRising = false;
     }
   } else {
-    if (relativeHumidity <= MIN_STARTING_HUMIDITY) {
+    if (relativeHumidity <= maxHumidity - HUMIDITY_WINDOW) {
       digitalWrite(HUMIDITY_PIN, HIGH);
       humidityRising = true;
     } else {
@@ -343,7 +351,7 @@ void adjustHumidity(float relativeHumidity) {
   }
 }
 
-void processTemperature(float temperatureCelsius) {
+void processTemperature(float temperatureCelsius, unsigned long elapsedSecondsSinceStart) {
   if ( isnan(temperatureCelsius) ) {
     consecutiveFailedTemperatureReads++;
     // If it's been a minute (30 * 2 seconds) without a valid temperature value, turn off the heat to fail safe
@@ -352,7 +360,7 @@ void processTemperature(float temperatureCelsius) {
       turnHeatOff();
     }
   } else {
-    adjustHeat(temperatureCelsius);
+    adjustHeat(temperatureCelsius, elapsedSecondsSinceStart);
     consecutiveFailedTemperatureReads = 0;
   }
 }
@@ -386,6 +394,22 @@ void reconnectToMqttServer() {
     }
   }
 }
+
+float calculateMaxTemperature(unsigned long secondsSinceStart) {
+  if (secondsSinceStart < FOURTEEN_DAYS_IN_SECONDS) {
+    return MAX_STARTING_TEMPERATURE;
+  }
+
+  unsigned long secondsSinceFourteenDays = secondsSinceStart - FOURTEEN_DAYS_IN_SECONDS;
+  float additionalHeat = ((float) secondsSinceFourteenDays / 86400.0) * 0.1;
+
+  return MAX_STARTING_TEMPERATURE + additionalHeat;
+}
+
+float calculateMaxHumidity(unsigned long secondsSinceStart) {
+  return secondsSinceStart <= LOCKDOWN_TIME_IN_SECONDS ? MAX_STARTING_HUMIDITY : MAX_LOCKDOWN_HUMIDITY;
+}
+
 void setup() {
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
@@ -480,11 +504,11 @@ void loop() {
     
     sendMessage(FREE_MEMORY_TOPIC, esp.getFreeHeap());
     sendMessage(ELAPSED_TIME_IN_SECONDS_TOPIC, ntpTime - unixTimeAtBoot);
+    time_t elapsedSecondsSinceStart;
+    
     if (unixTimeOnStart != 0) {
-      time_t elapsedTimeSinceStart = ntpTime - unixTimeOnStart;
-      sendMessage(TOTAL_TIME_REMAINING_TOPIC, PROGRAM_DURATION - elapsedTimeSinceStart);
-
-
+      elapsedSecondsSinceStart = ntpTime - unixTimeOnStart;
+      sendMessage(TOTAL_TIME_REMAINING_TOPIC, PROGRAM_DURATION - elapsedSecondsSinceStart);
     }
 
       // It's unlikely temperature reads will fail sequentially other than persistent timeout (which requires power cycling)
@@ -496,7 +520,7 @@ void loop() {
       consecutiveSensorTimeouts = 0;
     }
 
-    processTemperature(averages.temperatureCelsius);
+    processTemperature(averages.temperatureCelsius, elapsedSecondsSinceStart);
 
     // Throttle statistic output so it's not overwhelming
     if (sensor1Stats.total % 50 == 0) {
@@ -506,7 +530,7 @@ void loop() {
     }
 
     if ( !isnan(averages.relativeHumidity)) {
-      adjustHumidity(averages.relativeHumidity);
+      adjustHumidity(averages.relativeHumidity, elapsedSecondsSinceStart);
     } 
     
     boardLedState = !boardLedState;
