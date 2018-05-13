@@ -71,7 +71,7 @@ bool temperatureRising = true;
 bool humidityRising = true;
 
 int consecutiveFailedTemperatureReads;
-int consecutiveSensorTimeouts;
+int consecutiveSensorTimeouts[2];
 
 int cyclesInHeatCoolLoop;
 int cyclesToHeatToMax;
@@ -151,7 +151,7 @@ sensorReading readSensor(int sensorNumber, uint8_t dhtGpio, statistics& stats) {
     switch (checkStatus) {
     case DHTLIB_OK:
         stats.ok++;
-        consecutiveSensorTimeouts = 0;
+        consecutiveSensorTimeouts[sensorNumber - 1] = 0;
         return { DHT.temperature, DHT.humidity, stop - start };
     case DHTLIB_ERROR_CHECKSUM:
         Serial.print("Sensor ");
@@ -159,7 +159,7 @@ sensorReading readSensor(int sensorNumber, uint8_t dhtGpio, statistics& stats) {
         Serial.print(": checksum error on read #");
         Serial.println(stats.total);
         stats.crc_error++;
-        consecutiveSensorTimeouts = 0;
+        consecutiveSensorTimeouts[sensorNumber - 1] = 0;
         break;
     case DHTLIB_ERROR_TIMEOUT:
         Serial.print("Sensor ");
@@ -167,7 +167,7 @@ sensorReading readSensor(int sensorNumber, uint8_t dhtGpio, statistics& stats) {
         Serial.print(": timeout error on read #");
         Serial.println(stats.total);
         stats.time_out++;
-        consecutiveSensorTimeouts++;
+        consecutiveSensorTimeouts[sensorNumber - 1]++;
         break;
     default:
         Serial.print("Sensor ");
@@ -175,7 +175,7 @@ sensorReading readSensor(int sensorNumber, uint8_t dhtGpio, statistics& stats) {
         Serial.print(": unknown error on read #");
         Serial.println(stats.total);
         stats.unknown++;
-        consecutiveSensorTimeouts = 0;
+        consecutiveSensorTimeouts[sensorNumber - 1] = 0;
         break;
     }
 
@@ -512,12 +512,13 @@ void loop() {
     }
 
       // It's unlikely temperature reads will fail sequentially other than persistent timeout (which requires power cycling)
-    if (consecutiveSensorTimeouts >= 10) {
+    if (consecutiveSensorTimeouts[0] >= 10 || consecutiveSensorTimeouts[1] >= 10) {
       Serial.println("Power cycling sensors");
       turnSensorsOff();
       delay(100);
       turnSensorsOn();
-      consecutiveSensorTimeouts = 0;
+      consecutiveSensorTimeouts[0] = 0;
+      consecutiveSensorTimeouts[1] = 0;
     }
 
     processTemperature(averages.temperatureCelsius, elapsedSecondsSinceStart);
