@@ -17,8 +17,8 @@ DHT dht1(DHT_1_PIN, DHT_TYPE);
 DHT dht2(DHT_2_PIN, DHT_TYPE);
 
 const char* mqtt_server = "192.168.1.135";
-char* ssid = "Love Shack";
-const char* password = "pachamama";
+char* ssid = "Home Wi-Fi";
+const char* password = "secret1";
 const char* TEMPERATURE_TOPIC_1 = "desk/temperature/1";
 const char* HUMIDITY_TOPIC_1 = "desk/humidity/1";
 const char* TEMPERATURE_TOPIC_2 = "desk/temperature/2";
